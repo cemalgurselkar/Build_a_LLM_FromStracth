@@ -130,20 +130,24 @@ model = model.to(device)
 
 print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
 
-optimizer = torch.optim.AdamW(model.parameters(),lr=learning_rate)
+try:
+    optimizer = torch.optim.AdamW(model.parameters(),lr=learning_rate)
 
 
-for iter in range(max_iters):
+    for iter in range(max_iters):
 
-    if iter % eval_interval == 0 or iter == max_iters - 1:
-        losses = estimate_loss()
-        print(f"Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-    
-    xb,yb = get_batch('train')
-    logits, loss = model(xb,yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+        if iter % eval_interval == 0 or iter == max_iters - 1:
+            losses = estimate_loss()
+            print(f"Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        
+        xb,yb = get_batch('train')
+        logits, loss = model(xb,yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
 
-    context = torch.zeros((1,1),dtype=torch.long, device=device)
-    print(decode(model.generate(context,max_new_tokens=500)[0].tolist()))
+        context = torch.zeros((1,1),dtype=torch.long, device=device)
+        print(decode(model.generate(context,max_new_tokens=500)[0].tolist()))
+
+except Exception as e:
+    print(f"Error message: {e}")

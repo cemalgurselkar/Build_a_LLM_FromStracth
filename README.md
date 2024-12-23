@@ -25,3 +25,5 @@ python3 Transformer.py # run the Transformer.py file
 ```
 ## Note:
 **The gpt_2.py file is not running. It will be fix then.**
+### Error Message:
+**The size of tensor a (384) must match the size of tensor b (256) at non-singleton dimension 4**
