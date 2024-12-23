@@ -20,7 +20,12 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
     
     def scaled_dot_product_attention(self, Q, K, V, mask=None):
-
+        """
+        Q(Query):represents the vector that seeks relevant information,
+        K(Key):represents the vector that hold the information
+        V(Value):represents the actual content that is returned based on the relevance.
+        mask(optional): a mask is used to control which tokens are attended to during the attention process. 
+        """
         attention = torch.matmul(Q,K.transpose(-2,-1)) / math.sqrt(self.d_k)
         
         if mask is not None:

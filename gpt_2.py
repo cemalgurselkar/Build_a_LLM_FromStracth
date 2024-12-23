@@ -16,7 +16,6 @@ n_embd = 384
 n_head = 6
 n_layer = 6
 dropout = 0.2
-# ------------
 
 torch.manual_seed(1337)
 
