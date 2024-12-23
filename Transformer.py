@@ -4,6 +4,12 @@ import torch.nn.functional as F
 import math
 
 class MultiHeadAttention(nn.Module):
+    """
+    The goal of the multi-head attention mechanism is to learn a richer and 
+    more efficient representation in parallel processing
+    by calculating the attention weights of each token with parameters Q, K and V,
+    and ranking the tokens in order of importance according to these weights.
+    """
     def __init__(self,d_model,num_heads,dropout=0.1):
         super().__init__()
         assert d_model % num_heads == 0
@@ -50,6 +56,14 @@ class MultiHeadAttention(nn.Module):
         return self.W_o(output)
 
 class PositionWiseFeedForward(nn.Module):
+    """
+    Args:
+    d_model: model-dimensional
+    d_ff: feed-forward dimensional
+
+    The Purpose:
+    The Positional-wise Feed-Forward Network allows each token to learn its independent properties.
+    """
     def __init__(self,d_model,d_ff,dropout=0.1):
         super().__init__()
         self.linear1 = nn.Linear(d_model,d_ff)
@@ -60,6 +74,9 @@ class PositionWiseFeedForward(nn.Module):
         return self.linear2(self.dropout(F.relu(self.linear1(x))))
 
 class PositionalEncoding(nn.Module):
+    """
+    Positional encodings are vectors added to the Transformer model to specify the order of tokens so that the model can learn ordered dependencies.
+    """
     def __init__(self, d_model, max_seq_length=5000):
         super().__init__()
         pe = torch.zeros(max_seq_length,d_model)
@@ -76,6 +93,9 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:,:x.size(1)]
     
 class EncoderLayer(nn.Module):
+    """
+    LayerNorm is that normalize the distribution of each layer output, allowing the model to learn faster and more stable.
+    """
     def __init__(self,d_model,num_heads,d_ff,dropout=0.1):
         super().__init__()
         self.self_attention = MultiHeadAttention(d_model,num_heads,dropout)
