@@ -9,6 +9,9 @@ class MultiHeadAttention(nn.Module):
     more efficient representation in parallel processing
     by calculating the attention weights of each token with parameters Q, K and V,
     and ranking the tokens in order of importance according to these weights.
+
+    Math Formula:
+        MultiHead(Q,K,V) = Concat(Scale-dot-product-attention(Q,K,V))
     """
     def __init__(self,d_model,num_heads,dropout=0.1):
         super().__init__()
@@ -30,7 +33,10 @@ class MultiHeadAttention(nn.Module):
         Q(Query):represents the vector that seeks relevant information,
         K(Key):represents the vector that hold the information
         V(Value):represents the actual content that is returned based on the relevance.
-        mask(optional): a mask is used to control which tokens are attended to during the attention process. 
+        mask(optional): a mask is used to control which tokens are attended to during the attention process.
+
+        Math Formula:
+            Attention(Q,K,V) = softmax((Q*K'T)/sqrt(d_k))*V (named is Scaled Dot-Product Attention)
         """
         attention = torch.matmul(Q,K.transpose(-2,-1)) / math.sqrt(self.d_k)
         
@@ -63,6 +69,9 @@ class PositionWiseFeedForward(nn.Module):
 
     The Purpose:
     The Positional-wise Feed-Forward Network allows each token to learn its independent properties.
+
+    Math Formula:
+        FFN(x) = max(0, x*W_1 + b_1)*W_2 + b_2
     """
     def __init__(self,d_model,d_ff,dropout=0.1):
         super().__init__()
@@ -76,6 +85,10 @@ class PositionWiseFeedForward(nn.Module):
 class PositionalEncoding(nn.Module):
     """
     Positional encodings are vectors added to the Transformer model to specify the order of tokens so that the model can learn ordered dependencies.
+
+    Math Formula:
+        PE_{pos,2i} = sin(pos/math.pow(10000,(2*i)/d_model))
+        PE_{POS,2i+1} = cos(pos,math.pow(10000,(2*i)/d_model))
     """
     def __init__(self, d_model, max_seq_length=5000):
         super().__init__()
