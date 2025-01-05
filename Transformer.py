@@ -158,11 +158,11 @@ class Transformer(nn.Module):
         T = tgt.size(1)
         tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
 
-        nopeak_mask = torch.triu(torch.ones((T, T), device=tgt.device), diagonal=1).bool()
+        nopeak_mask = torch.triu(1 - torch.ones((T, T), device=tgt.device), diagonal=1).bool()
         nopeak_mask = nopeak_mask.unsqueeze(0).unsqueeze(1)
         print(f"tgt_mask shape: {tgt_mask.shape}")
         print(f"source_mask shape: {nopeak_mask.shape}")
-
+        
         tgt_mask = tgt_mask & nopeak_mask
         print(f"Final tgt_mask shape: {tgt_mask.shape}")
         return source_mask, tgt_mask
