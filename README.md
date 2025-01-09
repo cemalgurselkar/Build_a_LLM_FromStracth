@@ -2,6 +2,8 @@
 
 This project implements a GPT-2-like transformer-based language model entirely from scratch using PyTorch. The goal is to deeply understand the architecture and functionality of GPT-2 by building it step by step, with a focus on the decoder structure of the Transformer.
 
+**Note:** This is made inspired by Andrej Karpathy's nanogpt video.
+
 ## Overview
 
 GPT-2 (Generative Pretrained Transformer 2) is a transformer-based language model designed for generating coherent and contextually relevant text. This implementation focuses on understanding:
