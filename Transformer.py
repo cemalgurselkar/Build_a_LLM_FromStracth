@@ -1,227 +1,119 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from dataclasses import dataclass
 import math
+"""
+The Transformer architecture that compatible with decoder-only structure
+"""
 
-class MultiHeadAttention(nn.Module):
-    """
-    The goal of the multi-head attention mechanism is to learn a richer and 
-    more efficient representation in parallel processing
-    by calculating the attention weights of each token with parameters Q, K and V,
-    and ranking the tokens in order of importance according to these weights.
+@dataclass
+class GPTConfig:
+    block_size: int = 1024 # max sequence length
+    vocab_size: int = 50257 # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
+    n_layer: int = 12 # number of layers
+    n_head: int = 12 # number of heads
+    n_embd: int = 768 # embedding dimension
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayersNorms like gpt-2
 
-    Math Formula:
-        MultiHead(Q,K,V) = Concat(Scale-dot-product-attention(Q,K,V))
-    """
-    def __init__(self,d_model,num_heads,dropout=0.1):
+class LayerNorm(nn.Module):
+    def __init__(self, ndim, bias):
         super().__init__()
-        assert d_model % num_heads == 0
+        self.weight = nn.Parameter(torch.ones(ndim))
+        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
+    def forward(self, input):
+        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.d_k = d_model // num_heads
-
-        self.W_q = nn.Linear(d_model,d_model)
-        self.W_k = nn.Linear(d_model,d_model)
-        self.W_v = nn.Linear(d_model,d_model)
-        self.W_o = nn.Linear(d_model,d_model)
-
-        self.dropout = nn.Dropout(dropout)
-    
-    def scaled_dot_product_attention(self, Q, K, V, mask=None):
-        """
-        Q(Query):represents the vector that seeks relevant information,
-        K(Key):represents the vector that hold the information
-        V(Value):represents the actual content that is returned based on the relevance.
-        mask(optional): a mask is used to control which tokens are attended to during the attention process.
-
-        Math Formula:
-            Attention(Q,K,V) = softmax((Q*K'T)/sqrt(d_k))*V (named is Scaled Dot-Product Attention)
-        """
-        attention = torch.matmul(Q,K.transpose(-2,-1)) / math.sqrt(self.d_k)
-        
-        if mask is not None:
-            attention = attention.masked_fill(mask == 0, -1e9)          
-        
-        attention = F.softmax(attention, dim=-1)
-        attention = self.dropout(attention)
-
-        output = torch.matmul(attention,V)
-        return output
-    
-    def forward(self,Q,K,V,mask=None):
-        batch_size = Q.size(0)
-
-        Q = self.W_q(Q).view(batch_size,-1,self.num_heads,self.d_k).transpose(1,2)
-        K = self.W_k(K).view(batch_size,-1,self.num_heads,self.d_k).transpose(1,2)
-        V = self.W_v(V).view(batch_size,-1,self.num_heads,self.d_k).transpose(1,2)
-
-        output = self.scaled_dot_product_attention(Q,K,V,mask)
-
-        output = output.transpose(1,2).contiguous().view(batch_size,-1,self.d_model)
-        return self.W_o(output)
-
-class PositionWiseFeedForward(nn.Module):
-    """
-    Args:
-    d_model: model-dimensional
-    d_ff: feed-forward dimensional
-
-    The Purpose:
-    The Positional-wise Feed-Forward Network allows each token to learn its independent properties.
-
-    Math Formula:
-        FFN(x) = max(0, x*W_1 + b_1)*W_2 + b_2
-    """
-    def __init__(self,d_model,d_ff,dropout=0.1):
+class CasualSelfAttention(nn.Module):
+    def __init__(self,config):
         super().__init__()
-        self.linear1 = nn.Linear(d_model,d_ff)
-        self.linear2 = nn.Linear(d_ff,d_model)
-        self.dropout = nn.Dropout(dropout)
+        assert config.n_embd % config.n_head == 0
 
-    def forward(self,x):
-        return self.linear2(self.dropout(F.relu(self.linear1(x))))
+        self.attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        #regularization
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.resid_dropout = nn.Dropout(config.dropout)
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+        self.dropout = config.dropout
 
-class PositionalEncoding(nn.Module):
-    """
-    Positional encodings are vectors added to the Transformer model to specify the order of tokens so that the model can learn ordered dependencies.
+        try:
+            self.flash = F.scaled_dot_product_attention
+        except Exception as e:
+            print("Error: {}".format(e))
+            self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size))
+    
+    def forward(self, x):
+        B, T, C = x.size() #batch_size, sequence_lenght, embedding_dimensionality (n_embd)
 
-    Math Formula:
-        PE_{pos,2i} = sin(pos/math.pow(10000,(2*i)/d_model))
-        PE_{POS,2i+1} = cos(pos,math.pow(10000,(2*i)/d_model))
-    """
-    def __init__(self, d_model, max_seq_length=5000):
+        q, k, v = self.attn(x).split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, C// self.n_head).transpose(1,2) #(B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C//self.n_head).transpose(1,2) #(B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C//self.n_head).transpose(1,2) #(B, nh, T, hs)
+
+        if self.flash:
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+        else:
+            att = (q @ k.transpose(-2,1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+            att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v # (B, nh, T, T) x (B, nh, T, hs) --> (B, nh, T, hs)
+
+        y = y.transpose(1,2).contiguous().view(B, T, C) #re-assemble all head outputs side by side
+
+        y = self.resid_dropout(self.proj(y))
+        return y
+
+class MLP(nn.Module):
+    def __init__(self, config):
         super().__init__()
-        pe = torch.zeros(max_seq_length,d_model)
-        position = torch.arange(0,max_seq_length,dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0,d_model,2).float() * (-math.log(10000.0)/d_model))
-
-        pe[:,0::2] = torch.sin(position*div_term)
-        pe[:,1::2] = torch.cos(position * div_term)
-
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe',pe)
+        self.fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.gelu = nn.GELU()
+        self.proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
     
-    def forward(self,x):
-        return x + self.pe[:,:x.size(1)]
-    
-class EncoderLayer(nn.Module):
-    """
-    LayerNorm is that normalize the distribution of each layer output, allowing the model to learn faster and more stable.
-    """
-    def __init__(self,d_model,num_heads,d_ff,dropout=0.1):
-        super().__init__()
-        self.self_attention = MultiHeadAttention(d_model,num_heads,dropout)
-        self.feed_forward = PositionWiseFeedForward(d_model,d_ff,dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self,x,mask=None):
-        attention_output = self.self_attention(x,x,x,mask)
-        x = self.norm1(x + self.dropout(attention_output))
-
-        ff_dropout = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_dropout))
-
+    def forward(self, x):
+        x = self.fc(self.gelu(x))
+        x = self.proj(self.dropout(x))
         return x
 
-class DecoderLayer(nn.Module):
-    def __init__(self,d_model,num_heads,d_ff,dropout=0.1):
+
+class Block(nn.Module):
+    def __init__(self, config):
         super().__init__()
-        self.self_attention = MultiHeadAttention(d_model,num_heads,dropout)
-        self.cross_attention = MultiHeadAttention(d_model,num_heads,dropout)
-        self.feed_forward = PositionWiseFeedForward(d_model,d_ff,dropout)
-
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
-
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self,x,encoder_output,src_mask=None,tgt_mask=None):
-        
-        self_attention_output = self.self_attention(x,x,x,tgt_mask)
-        x = self.norm1(x + self.dropout(self_attention_output))
-
-        cross_attention_output = self.cross_attention(x,encoder_output,encoder_output,src_mask)
-        x = self.norm2(x + self.dropout(cross_attention_output))
-
-        ff_output = self.feed_forward(x)
-        x = self.norm3(x + self.dropout(ff_output))
+        self.ln1 = LayerNorm(config.n_embd, bias=config.bias)
+        self.attn = CasualSelfAttention(config)
+        self.ln2 = LayerNorm(config.n_embd, bias=config.bias)
+        self.mlp = MLP(config)
+    
+    def forward(self, x):
+        x += self.attn(self.ln1(x))
+        x += self.mlp(self.ln2(x))
         return x
-
-class Transformer(nn.Module):
-    def __init__(self, src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_seq_length=5000, dropout=0.1):
-        super().__init__()
-
-        self.src_embed = nn.Embedding(src_vocab_size,d_model)
-        self.tgt_embed = nn.Embedding(tgt_vocab_size,d_model)
-        self.positional_encoding = PositionalEncoding(d_model,max_seq_length)
-
-        self.encoder_layers = nn.ModuleList([EncoderLayer(d_model,num_heads,d_ff,dropout) for _ in range(num_layers)])
-        self.decoder_layers = nn.ModuleList([DecoderLayer(d_model,num_heads,d_ff,dropout) for _ in range(num_layers)])
-
-        self.output_layer = nn.Linear(d_model,tgt_vocab_size)
-
-        self.dropout = nn.Dropout(dropout)
-    
-    def generate_mask(self, source, tgt):
-        source_mask = (source != 0).unsqueeze(1).unsqueeze(2)
-        T = tgt.size(1)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
-
-        nopeak_mask = torch.triu(1 - torch.ones((T, T), device=tgt.device), diagonal=1).bool()
-        nopeak_mask = nopeak_mask.unsqueeze(0).unsqueeze(1)
-        print(f"tgt_mask shape: {tgt_mask.shape}")
-        print(f"source_mask shape: {nopeak_mask.shape}")
-        
-        tgt_mask = tgt_mask & nopeak_mask
-        print(f"Final tgt_mask shape: {tgt_mask.shape}")
-        return source_mask, tgt_mask
-
-    
-    def forward(self,source,tgt):
-        source_mask, tgt_mask = self.generate_mask(source,tgt)
-
-        source_embedding = self.dropout(self.positional_encoding(self.src_embed(source)))
-        tgt_embedding = self.dropout(self.positional_encoding(self.tgt_embed(tgt)))
-
-        enc_output = source_embedding
-        for enc_layer in self.encoder_layers:
-            enc_output = enc_layer(enc_output,source_mask)
-        
-        dec_output = tgt_embedding
-        for dec_layer in self.decoder_layers:
-            dec_output = dec_layer(dec_output,enc_output,source_mask,tgt_mask)
-        
-        output = self.output_layer(dec_output)
-        return output
 
 if __name__ == '__main__':
-    # Model parameters
-    src_vocab_size = 5000 #Source vocabulary size
-    tgt_vocab_size = 5000 #Target vocabulary size
-    d_model = 512 # Embedding Dimension
-    num_heads = 8 # Number of attention heads
-    num_layers = 6 # Number of encoder/decoder layers
-    d_ff = 2048 # Feed-Forward dimension
-    dropout = 0.1
-
-    model = Transformer(
-        src_vocab_size=src_vocab_size,
-        tgt_vocab_size=tgt_vocab_size,
-        d_model=d_model,
-        num_heads=num_heads,
-        num_layers=num_layers,
-        d_ff=d_ff,
-        dropout=dropout
+    # Configuration for a small GPT model
+    config = GPTConfig(
+        block_size=1024,
+        vocab_size=50257,
+        n_layer=12,
+        n_head=12,
+        n_embd=768,
+        dropout=0.1,
+        bias=True
     )
 
-    src = torch.randint(1, src_vocab_size, (32, 20))
-    tgt = torch.randint(1, tgt_vocab_size, (32, 15))
-    try:
-        output = model(src,tgt)
-        print(f"Output'shape is: {output.shape}")
-    except Exception as e:
-        print(f"Error is: {e}")
+    block = Block(config)
+
+    batch_size = 10
+    sequence_length = 124
+    x = torch.randn(batch_size, sequence_length, config.n_embd)
+
+    print("Input shape:", x.shape)
+    output = block(x)
+    print("Output shape:", output.shape)
+
+    assert output.shape == x.shape, "Output shape does not match input shape!"

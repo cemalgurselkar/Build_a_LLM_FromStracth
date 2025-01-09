@@ -1,29 +1,41 @@
-# Transformer and GPT Model
+# GPT-2 from Scratch
 
-This repository implements a GPT model from scratch using the Transformer architecture based on the *"Attention Is All You Need"* paper. The model is inspired by Andrej Karpathy's GPT video, with the key difference being the usage of an improved Transformer architecture derived directly from the *"Attention Is All You Need"* paper.
+This project implements a GPT-2-like transformer-based language model entirely from scratch using PyTorch. The goal is to deeply understand the architecture and functionality of GPT-2 by building it step by step, with a focus on the decoder structure of the Transformer.
 
----
+## Overview
+
+GPT-2 (Generative Pretrained Transformer 2) is a transformer-based language model designed for generating coherent and contextually relevant text. This implementation focuses on understanding:
+- Transformer decoder architecture.
+- Autoregressive generation using causal masking.
+- Weight tying between embedding and softmax layers.
+- Efficient optimization techniques like AdamW.
+
+This project uses numerical data for debugging and testing, making it easier to verify the correctness of the implementation.
+
 ## Features
 
-- **Transformer Architecture**: Fully implemented Encoder-Decoder structure with Multi-Head Attention, Positional Encoding, and Feed Forward layers.
-- **GPT Model**: Implements causal attention for autoregressive text generation.
-- **Custom Implementation**: Both the Transformer and GPT models are implemented from scratch using PyTorch.
-
----
+- Fully custom implementation of GPT-2's decoder structure in PyTorch.
+- Support for:
+  - Causal masking to ensure autoregressive text generation.
+  - Token and positional embeddings.
+  - Layer normalization and residual connections.
+- Customizable model configurations.
+- Text generation with configurable temperature and top-k sampling.
+- Optimizer setup with weight decay support.
 
 ## Requirements
+Python3.10.12
 
-Install the required dependencies:
 ```bash
-#Create a virtual env. 
+
+#For create a virtual enviroment and setup the required library
 python3 -m venv venv
 source venv/bin/activate
+pip install requirement.txt
 
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 # to download torch 
+#Run Transformer.py
+python3 Transformer.py
 
-python3 Transformer.py # run the Transformer.py file
+#Run gpt_2.py
+python gpt_2.py
 ```
-## Note:
-**The gpt_2.py file is not running. It will be fix then.**
-### Error Message:
-**The size of tensor a (384) must match the size of tensor b (256) at non-singleton dimension 4**
